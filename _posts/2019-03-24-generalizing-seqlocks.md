@@ -1,7 +1,7 @@
 ---
 title: "Generalizing Seqlocks"
 ---
-# the swym algorithm
+# The swym Algorithm
 
 [swym](https://github.com/mtak-/swym) is a very performant Software Transactional Memory (STM) library. It uses a variation on the per-object Transactional Locking II algorithm. The [paper](https://people.csail.mit.edu/shanir/publications/Transactional_Locking.pdf) does an excellent job explaining the algorithm, but it is not required reading for this article. `swym` is a generalization of seqlocks - one the TL2 paper *almost* achieves, but does not for whatever reason.
 
@@ -18,7 +18,7 @@ pub struct Seqlock<T: Copy> {
 }
 ```
 
-In addition to the `value` the lock protects, it also contains a sequence number, `seq_number`. This number starts at 0 and increases by two everytime value is changed. Why two? Well, if the value is odd, that means there's a writer currently modifying the value.
+In addition to the `value` the lock protects, it also contains a sequence number, `seq_number`. This number starts at 0 and increases by two every time the value is changed. Why two? Well, if the value is odd, that means there's a writer currently modifying the value.
 
 #### Seqlock writers 
 
@@ -90,9 +90,9 @@ With the seqlock algorithm sketched out, it's now time to start generalizing it.
 
 ## Single-Sequence Multiple Data
 
-Seqlocks are great for providing atomic access to a single value, but they don't compose. If there are two values `i` and `j` each with their own seqlock, and a program wants to "atomically" read both of them, it's out of luck.
+Seqlocks are great for providing atomic access to a single value, but they don't compose. If there are two values `t` and `u` each with their own seqlock, and a program wants to "atomically" read both of them, it's out of luck.
 
-To fix that, without losing the ability to perform independent writes to `i` and `j` in parallel, allow me to introduce the Single Sequence Multiple Data (SSMD) structure.
+To fix that, without losing the ability to perform independent writes to `t` and `u` in parallel, allow me to introduce the Single Sequence Multiple Data (SSMD) structure.
 
 ```rust
 // always even
@@ -104,7 +104,7 @@ pub struct SSMD<T: Copy> {
 }
 ```
 
-The sequence number is now a private global, and taking it's place in the structure is a combined version number and lock.
+The sequence number is now a private global, and taking its place in the structure is a combined version number and lock.
 
 Take some time to study what's happened here. Every `SSMD` will be sequenced with the *same* sequence number. That sequence number is no longer polluted with this notion of write-locking, yet every object can still be locked independently.
 
@@ -136,7 +136,7 @@ Only the last line has changed from `self.seq_number.fetch_add(1)` to instead bu
 
 #### SSMD readers (part 1)
 
-For now, let's forget about composability, and just solve the problem of reading from two `SSMD<T>`'s atomically. One possible solution looks like this:
+For now, let's forget about composability, and just solve the problem of reading from two `SSMD<T>`s atomically. One possible solution looks like this:
 
 ```rust
 pub fn read_pair<T, U>(t: &SSMD<T>, u: &SSMD<U>) -> (T, U)
@@ -199,7 +199,7 @@ I'll informally first prove that no torn reads are ever returned (again ignoring
 
 Other cases where a write lock is aquired after the read has acquired a sequence number are no different than a regular seqlock.
 
-Now for a handwaiving explaination of why the read of the pair is atomic. What matters for atomicity is that both values returned were stored in memory at the exact moment `SEQ_NUMBER` was incremented to the value `fn read` sees. The commit algorithm later in the article will ensure that write's obey this rule.
+Now for a handwaving explanation of why the read of the pair is atomic. What matters for atomicity is that both values returned were stored in memory at the exact moment `SEQ_NUMBER` was incremented to the value `fn read` sees. The commit algorithm later in the article will ensure that writes obey this rule.
 
 #### SSMD readers (part 2 - enter transactions)
 
@@ -227,7 +227,7 @@ impl<T: Copy> SSMD<T> {
 }
 ```
 
-`get` is the repeated steps (2 and 3) of `read_pair` algorithm, except instead of `continue` it returns an error.
+`get` is the repeated steps (2 and 3) of the `read_pair` algorithm, except instead of `continue` it returns an error.
 
 Still missing, is the `loop` - a way to run transactions:
 
@@ -261,9 +261,9 @@ In `swym`, when [ThreadKey::read](https://docs.rs/swym/0.1.0-preview/swym/thread
 
 ## Mixing reads and writes (TCell)
 
-It's time to upgrade `SSMD` into a full fledged [TCell](https://docs.rs/swym/0.1.0-preview/swym/tcell/struct.TCell.html) by adding support for mixing reads and writes in the same transaction. This requires logging to do in a general way.
+It's time to upgrade `SSMD` into a full fledged [TCell](https://docs.rs/swym/0.1.0-preview/swym/tcell/struct.TCell.html) by adding support for mixing reads and writes in the same transaction. This mixing of reads and writes will eventually require a logging mechanism.
 
-To keep things simple, let's examine a case where all the memory that will be read and written is known a head of time. In the following example, values are copied from "reads" to "writes" atomically. *Note: It's impossible to write a transactional linked list or most other data structures under such a system.*
+To keep things simple, let's examine a case where all the memory that will be read and written is known ahead of time. In the following example, values are copied from "reads" to "writes" atomically. *Note: It's impossible to write a transactional linked list or most other data structures under such a system.*
 
 ```rust
 pub fn copy_to(
@@ -327,7 +327,7 @@ pub fn copy_to(
 That's a big soggy ball of code up there, but it's essentially `swym`'s commit algorithm.
 
 The algorithm in words:
-1. Grab all of the locks to `TCell`'s that will be written - retry if acquiring a lock fails.
+1. Grab all of the locks to `TCell`s that will be written - retry if acquiring a lock fails.
 2. Perform all of the reads, unlocking/retrying if one fails.
 3. Perform all of the writes.
 4. Update the sequence number.
@@ -335,13 +335,13 @@ The algorithm in words:
 
 Hopefully the shape of that algorithm is pretty clearly a mashup of `fn write` and `fn read_only`. It looks kinda like the reads could be performed before acquiring the write locks, but that would be subtly broken. Not in any way that's `unsafe`, but it would create an observable smearing of reads across time. After reading, an interleaving transaction could successfully update values that appear in the read set, and by the time this transaction commits, the values it writes would be from out of date reads! That breaks the Single Lock Atomicity (SLA) guarantee that STM's are built around. But... it's not `unsafe`, and it's definitely faster, so perhaps there are uses for it.
 
-When all values in the write set don't depend on a specific read, that read can be performed using [Ordering::Read](https://docs.rs/swym/0.1.0-preview/swym/tx/enum.Ordering.html#variant.Read) without breaking SLA. In atleast one [paper](https://www.ssrg.ece.vt.edu/papers/disc16-TR.pdf) this has been referred to as a *reverse-commit anti-dependency* (RCAD). [swym-rbtree](https://github.com/mtak-/swym/tree/master/swym-rbtree) makes heavy use of `Ordering::Read`. Finding the location to insert a new element into the rbtree can use `Ordering::Read` to traverse the tree, as long as the stronger `Ordering::ReadWrite` (SLA) is used for balancing the tree afterwards.
+When all values in the write set don't depend on a specific read, that read can be performed using [Ordering::Read](https://docs.rs/swym/0.1.0-preview/swym/tx/enum.Ordering.html#variant.Read) without breaking SLA. In at least one [paper](https://www.ssrg.ece.vt.edu/papers/disc16-TR.pdf) this has been referred to as a *reverse-commit anti-dependency* (RCAD). [swym-rbtree](https://github.com/mtak-/swym/tree/master/swym-rbtree) makes heavy use of `Ordering::Read`. Finding the location to insert a new element into the rbtree can use `Ordering::Read` to traverse the tree, as long as the stronger `Ordering::ReadWrite` (SLA) is used for balancing the tree afterwards.
 
 Let's jump ahead to the final commit algorithm.
 
 #### swym's commit algorithm
 
-Transactions in `swym` accumulate a log of all the `TCell`'s read and a *redo* log of all the pending writes to be performed along with their destination `TCell`'s. Writes are queued up and performed at commit time in an atomic fashion similar to the above function.
+Transactions in `swym` accumulate a log of all the read `TCell`s and a *redo* log of all the pending writes to be performed along with their destination `TCell`s. Writes are queued up and performed at commit time in an atomic fashion similar to the above function.
 
 ```rust
 pub struct Transaction<'a> {
@@ -358,7 +358,7 @@ pub struct Transaction<'a> {
 
 Of course `swym` supports more than just `usize`, and it's not limited to `Copy` types, but those details aren't particularly relevant here.
 
-Modifying `copy_to` to use the log information in the transaction is straight forward:
+Modifying `copy_to` to use the log information in the transaction is straightforward:
 
 ```rust
 fn commit(tx: Transaction<'_>) -> Result<(), Error> {
@@ -414,7 +414,7 @@ fn commit(tx: Transaction<'_>) -> Result<(), Error> {
 ```
 
 Algorithm:
-1. Grab all of the locks to `TCell`'s in the redo_log - returning an error on failure.
+1. Grab all of the locks to `TCell`s in the redo_log - returning an error on failure.
 2. Check that none of the reads have been modified since transaction start, unlocking/retrying if one fails.
 3. Perform all of the writes.
 4. Update the sequence number.
@@ -469,7 +469,7 @@ fn get<'a>(
 }
 ```
 
-`get` is very similar to `SSMD::get` except it adds self to the `read_log` and checks the `redo_log` for any writes made during the transaction. Without that check, Single Lock Atomicity, would be violated.
+`get` is very similar to `SSMD::get` except it adds self to the `read_log` and checks the `redo_log` for any writes made during the transaction. Without that check, Single Lock Atomicity would be violated.
 
 
 #### ThreadKey::rw
