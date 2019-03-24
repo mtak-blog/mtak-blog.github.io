@@ -423,7 +423,7 @@ Algorithm:
 4. Update the sequence number.
 5. Unlock every `TCell` in the redo log with the new sequence number.
 
-Pretty similar to `copy_to` eh? All that's left is to add elements to the read and redo logs.
+Pretty similar to `copy_to`, eh? All that's left is to add elements to the read and redo logs.
 
 #### TCell::set()
 
