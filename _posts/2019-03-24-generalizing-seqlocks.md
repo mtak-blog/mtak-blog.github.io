@@ -49,7 +49,7 @@ The writer algorithm (excluding details of memory ordering/fences/overflow):
 2. At this point the writer has exclusive write access, so it can assign `new_value` to `value`.
 3. Release the write lock by adding 1 - making it even again.
 
-Crucially when the writer finishes, there is a *new* sequence number. To see why that's important let's look at the reader side of things.
+Crucially, when the writer finishes, there is a *new* sequence number. To see why that's important let's look at the reader side of things.
 
 #### Seqlock readers
 
@@ -132,7 +132,10 @@ pub fn write(&self, new_value: T) {
 }
 ```
 
-Only the last line has changed from `self.seq_number.fetch_add(1)` to instead bump the global sequence number and store the result into `self.version_lock`. So little has changed in fact, that the old reader code, changing `seq_number` to `version_lock`, would still work just fine! The careful observer will also notice that the per-object `version_lock` is able to lag arbitrarily far behind the global `SEQ_NUMBER`. Readers will take advantage of that property.
+Only the last line has changed from `self.seq_number.fetch_add(1)` to instead bump the global sequence number and store the result into `self.version_lock`. In fact, so little has changed that the old reader code (changing `seq_number` to `version_lock`) would still work just fine! The careful observer will also notice that the per-object `version_lock` is able to lag arbitrarily far behind the global `SEQ_NUMBER`. Readers will take advantage of that property.
+
+New sentence:
+In fact, so little has changed that the old reader code (changing `seq_number` to `version_lock`) would still work just fine!
 
 #### SSMD readers (part 1)
 
@@ -179,22 +182,22 @@ The read algorithm is as follows (ignoring overflows/fences/ordering):
 5. Verify the version of that value was set before our read from the sequence number and the write lock is not held. On fail, retry from **1**
 6. Return both values.
 
-Even if you're experienced at [juggling razor blades](https://www.youtube.com/watch?v=c1gO9aB9nbs), it's significantly less obvious that this algorithm is safe when compared with Seqlocks, and harder still, to see that it is an atomic read of both values. Perhaps this is why the original TL2 algorithm had reads from each objects version number *before* and after loads from the value (though it does make TL2's commit algorithm a little simpler).
+Even if you're experienced at [juggling razor blades](https://www.youtube.com/watch?v=c1gO9aB9nbs), it's significantly less obvious that this algorithm is safe when compared with Seqlocks, and harder still to see that it is an atomic read of both values. Perhaps this is why the original TL2 algorithm had reads from each objects version number *before* and after loads from the value (though it does make TL2's commit algorithm a little simpler).
 
-I'll informally first prove that no torn reads are ever returned (again ignoring overflow).
+First, I'll informally prove that no torn reads are ever returned (again ignoring overflow).
 
 **Case 1:** A write lock is held before the reader starts and the sequence number has not yet been bumped.
 1. The reader reads the soon to be out of date sequence number.
 2. The reader reads the value, possibly torn or more recent than the sequence number.
 3. Then while verifying the version number, it either sees:
     - The write lock is still held, in which case it aborts and retries.
-    - The sequence number it read is older than the version number (write has finished). In which case it aborts and retries.
+    - The sequence number it read is older than the version number (write has finished), in which case it aborts and retries.
 
 **Case 2:** A write lock is held before the reader starts *but* the sequence number has already been bumped.
 1. The reader reads the new sequence number.
 2. The reader reads the value - this time it's not torn because the sequence number has already been bumped.
 3. Then while verifying the version number, it either sees:
-    - The write lock is still held, in which case it aborts, and retries (a conservative failure).
+    - The write lock is still held, in which case it aborts and retries (a conservative failure).
     - The write lock is no longer held and the version number matches the sequence number read at 1. The read is successful.
 
 Other cases where a write lock is aquired after the read has acquired a sequence number are no different than a regular seqlock.
