@@ -504,7 +504,6 @@ where
                 // try to commit
                 if let Ok(()) = commit(tx) {
                     // success!
-                    thread::leave_transaction();
                     return r;
                 }
             }
