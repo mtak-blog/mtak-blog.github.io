@@ -134,9 +134,6 @@ pub fn write(&self, new_value: T) {
 
 Only the last line has changed from `self.seq_number.fetch_add(1)` to instead bump the global sequence number and store the result into `self.version_lock`. In fact, so little has changed that the old reader code (changing `seq_number` to `version_lock`) would still work just fine! The careful observer will also notice that the per-object `version_lock` is able to lag arbitrarily far behind the global `SEQ_NUMBER`. Readers will take advantage of that property.
 
-New sentence:
-In fact, so little has changed that the old reader code (changing `seq_number` to `version_lock`) would still work just fine!
-
 #### SSMD readers (part 1)
 
 For now, let's forget about composability, and just solve the problem of reading from two `SSMD<T>`s atomically. One possible solution looks like this:
