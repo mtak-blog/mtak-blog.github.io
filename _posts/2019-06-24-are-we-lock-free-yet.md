@@ -2,7 +2,7 @@
 title: "swym: Are we lock-free yet?"
 ---
 
-# swym is not lock-free
+# No.
 
 [swym](https://github.com/mtak-/swym) is a transactional memory library that prioritizes performance. It's not lock-free, but it does have progress guarantees.
 
